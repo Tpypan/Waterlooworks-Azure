@@ -288,6 +288,9 @@
     const modal = document.querySelector('div[data-v-70e7ded6-s]');
     if (!modal) return;
 
+    const modalHeader = modal.querySelector('.dashboard-header--mini');
+    if (!modalHeader) return;
+
     // Remove existing nav UI
     const existing = document.getElementById('waw-modal-nav');
     if (existing) existing.remove();
@@ -298,73 +301,63 @@
     const navUI = document.createElement('div');
     navUI.id = 'waw-modal-nav';
     navUI.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
       display: flex;
-      gap: 8px;
-      z-index: 1000001;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+      margin-right: 12px;
     `;
 
     navUI.innerHTML = `
-      <button class="waw-nav-btn" id="waw-nav-prev" title="Previous job (←)">
-        <span style="font-size: 18px;">←</span>
-        <span style="font-size: 11px;">Prev</span>
-      </button>
-      <button class="waw-nav-btn waw-shortlist-btn" id="waw-nav-shortlist" title="Shortlist (S)" data-job-id="${jobId || ''}">
-        <span style="font-size: 20px;">${isShortlisted ? '★' : '☆'}</span>
-        <span style="font-size: 11px;">Shortlist</span>
-      </button>
-      <button class="waw-nav-btn" id="waw-nav-next" title="Next job (→)">
-        <span style="font-size: 18px;">→</span>
-        <span style="font-size: 11px;">Next</span>
-      </button>
-      <button class="waw-nav-btn waw-close-btn" id="waw-nav-close" title="Close (Esc)">
-        <span style="font-size: 16px;">✕</span>
-        <span style="font-size: 11px;">Close</span>
-      </button>
+      <button class="waw-nav-btn" id="waw-nav-prev" title="Previous job (← or A)">←</button>
+      <button class="waw-nav-btn waw-shortlist-btn ${isShortlisted ? 'is-shortlisted' : ''}" 
+              id="waw-nav-shortlist" title="Shortlist (W/S)" data-job-id="${jobId || ''}">${isShortlisted ? '★' : '☆'}</button>
+      <button class="waw-nav-btn" id="waw-nav-next" title="Next job (→ or D)">→</button>
     `;
 
-    // Add styles
-    const style = document.createElement('style');
-    style.textContent = `
-      .waw-nav-btn {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 10px 16px;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        font-family: inherit;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        transition: all 0.2s ease;
-        min-width: 60px;
-      }
-      .waw-nav-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(0,0,0,0.4);
-      }
-      .waw-nav-btn:active {
-        transform: translateY(0);
-      }
-      .waw-shortlist-btn {
-        background: linear-gradient(135deg, #f39c12, #e67e22);
-      }
-      .waw-shortlist-btn.is-shortlisted {
-        background: linear-gradient(135deg, #27ae60, #2ecc71);
-      }
-      .waw-close-btn {
-        background: linear-gradient(135deg, #e74c3c, #c0392b);
-      }
-    `;
-    navUI.appendChild(style);
+    // Add styles (only once)
+    if (!document.getElementById('waw-nav-styles')) {
+      const style = document.createElement('style');
+      style.id = 'waw-nav-styles';
+      style.textContent = `
+        #waw-modal-nav .waw-nav-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 6px 12px;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 16px;
+          font-weight: 600;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+          transition: all 0.2s ease;
+          min-width: 36px;
+          height: 32px;
+        }
+        #waw-modal-nav .waw-nav-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        #waw-modal-nav .waw-nav-btn:active {
+          transform: translateY(0);
+        }
+        #waw-modal-nav .waw-shortlist-btn {
+          background: linear-gradient(135deg, #f39c12, #e67e22);
+          font-size: 18px;
+        }
+        #waw-modal-nav .waw-shortlist-btn.is-shortlisted {
+          background: linear-gradient(135deg, #27ae60, #2ecc71);
+        }
+      `;
+      document.head.appendChild(style);
+    }
 
-    document.body.appendChild(navUI);
+    // Insert into modal header
+    modalHeader.appendChild(navUI);
 
     // Event listeners
     document.getElementById('waw-nav-prev').addEventListener('click', () => navigateJob(-1));
@@ -373,7 +366,6 @@
       const jid = getCurrentModalJobId();
       if (jid) toggleShortlistJob(jid);
     });
-    document.getElementById('waw-nav-close').addEventListener('click', closeModal);
 
     // Update shortlist button state
     updateModalShortlistIndicator();
@@ -387,7 +379,7 @@
     if (!jobId) return;
 
     const isShortlisted = shortlistedJobs.has(String(jobId));
-    btn.querySelector('span:first-child').textContent = isShortlisted ? '★' : '☆';
+    btn.textContent = isShortlisted ? '★' : '☆';
     btn.classList.toggle('is-shortlisted', isShortlisted);
   }
 
@@ -417,24 +409,44 @@
     // Handle wrapping / pagination
     if (newIndex < 0) {
       // Try to go to previous page
-      const prevPageBtn = document.querySelector('.pagination .previous:not(.disabled) a, a[aria-label="Previous"]');
+      const prevPageBtn = document.querySelector(
+        '.pagination .previous:not(.disabled) a, ' +
+        '.pagination .prev:not(.disabled) a, ' +
+        '.pagination .previous:not(.disabled), ' +
+        '.pagination .prev:not(.disabled), ' +
+        'a[aria-label="Previous"], ' +
+        'button[aria-label="Previous"], ' +
+        '.pager .prev:not(.disabled), ' +
+        'a[rel="prev"]'
+      );
       if (prevPageBtn) {
-        sessionStorage.setItem('waw-goto-last', 'true');
+        // Close modal, watch for table update, then navigate to last job
+        closeModal();
+        waitForTableUpdateThenNavigate('last');
         prevPageBtn.click();
         return;
       }
       newIndex = 0;
-      showNotification('First job on this page', 'info');
+      showNotification('First job (no previous page)', 'info');
     } else if (newIndex >= jobLinks.length) {
       // Try to go to next page
-      const nextPageBtn = document.querySelector('.pagination .next:not(.disabled) a, a[aria-label="Next"]');
+      const nextPageBtn = document.querySelector(
+        '.pagination .next:not(.disabled) a, ' +
+        '.pagination .next:not(.disabled), ' +
+        'a[aria-label="Next"], ' +
+        'button[aria-label="Next"], ' +
+        '.pager .next:not(.disabled), ' +
+        'a[rel="next"]'
+      );
       if (nextPageBtn) {
-        sessionStorage.setItem('waw-goto-first', 'true');
+        // Close modal, watch for table update, then navigate to first job
+        closeModal();
+        waitForTableUpdateThenNavigate('first');
         nextPageBtn.click();
         return;
       }
       newIndex = jobLinks.length - 1;
-      showNotification('Last job on this page', 'info');
+      showNotification('Last job (no next page)', 'info');
     }
 
     currentJobIndex = newIndex;
@@ -449,6 +461,18 @@
       // Wait a bit then click the new job
       setTimeout(() => {
         link.click();
+        
+        // Trigger job info rearranger after modal content loads
+        setTimeout(() => {
+          if (window.AzureJobInfoRearranger) {
+            // Reset the enhanced flag so rearranger can process the new content
+            const modal = document.querySelector('div[data-v-70e7ded6-s]');
+            if (modal) {
+              modal.dataset.azureEnhanced = 'false';
+            }
+            window.AzureJobInfoRearranger.enhance();
+          }
+        }, 300);
       }, 100);
     }
   }
@@ -462,6 +486,78 @@
       // Try pressing Escape
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
     }
+  }
+
+  // ============================================
+  // Pagination Navigation (SPA-aware)
+  // ============================================
+
+  function waitForTableUpdateThenNavigate(position) {
+    // Store current job IDs to detect when table content changes
+    const currentJobIds = new Set(jobLinks.map(link => {
+      const row = link.closest('tr');
+      return row ? getJobIdFromRow(row) : null;
+    }).filter(Boolean));
+
+    const tableContainer = document.querySelector('tbody[data-v-612a1958]') || 
+                           document.querySelector('table tbody');
+    if (!tableContainer) {
+      console.log('[WAW] Table container not found for pagination watch');
+      return;
+    }
+
+    console.log(`[WAW] Watching for table update, will navigate to ${position} job`);
+
+    const observer = new MutationObserver(() => {
+      // Refresh job links
+      getAllJobLinks();
+      
+      const newJobIds = new Set(jobLinks.map(link => {
+        const row = link.closest('tr');
+        return row ? getJobIdFromRow(row) : null;
+      }).filter(Boolean));
+
+      // Check if job IDs have changed (new page loaded)
+      const hasChanged = newJobIds.size > 0 && 
+                         ![...newJobIds].every(id => currentJobIds.has(id));
+
+      if (hasChanged) {
+        console.log('[WAW] Table content changed, navigating to ' + position);
+        observer.disconnect();
+        
+        // Wait for table to stabilize, then navigate
+        setTimeout(() => {
+          enhanceJobTable();
+          
+          if (position === 'first') {
+            currentJobIndex = 0;
+          } else {
+            currentJobIndex = jobLinks.length - 1;
+          }
+
+          if (jobLinks[currentJobIndex]) {
+            jobLinks[currentJobIndex].click();
+            
+            // Trigger job info rearranger after modal loads
+            setTimeout(() => {
+              if (window.AzureJobInfoRearranger) {
+                const modal = document.querySelector('div[data-v-70e7ded6-s]');
+                if (modal) modal.dataset.azureEnhanced = 'false';
+                window.AzureJobInfoRearranger.enhance();
+              }
+            }, 300);
+          }
+        }, 300);
+      }
+    });
+
+    observer.observe(tableContainer, { childList: true, subtree: true });
+
+    // Timeout fallback - disconnect after 5 seconds if nothing happens
+    setTimeout(() => {
+      observer.disconnect();
+      console.log('[WAW] Pagination watch timed out');
+    }, 5000);
   }
 
   // ============================================
@@ -732,21 +828,6 @@
     setTimeout(() => {
       enhanceJobTable();
       setupTableObserver();
-
-      // Check if we should navigate after page load (pagination)
-      if (sessionStorage.getItem('waw-goto-first')) {
-        sessionStorage.removeItem('waw-goto-first');
-        currentJobIndex = 0;
-        if (jobLinks[0]) {
-          setTimeout(() => jobLinks[0].click(), 500);
-        }
-      } else if (sessionStorage.getItem('waw-goto-last')) {
-        sessionStorage.removeItem('waw-goto-last');
-        currentJobIndex = jobLinks.length - 1;
-        if (jobLinks[currentJobIndex]) {
-          setTimeout(() => jobLinks[currentJobIndex].click(), 500);
-        }
-      }
     }, 1500);
 
     console.log('[WAW] Navigator ready!');
