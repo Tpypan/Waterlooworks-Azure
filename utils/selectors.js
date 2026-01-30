@@ -57,7 +57,7 @@ const Selectors = {
     pagePrev: '.pagination .prev, .pager .prev, a[rel="prev"]',
     
     // New/unread indicators
-    newBadge: '.new-badge, .badge-new, span:contains("NEW")',
+    newBadge: '.new-badge, .badge-new',
     
     // Checkboxes for batch
     checkbox: 'input[type="checkbox"]',

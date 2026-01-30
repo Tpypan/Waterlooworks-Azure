@@ -21,6 +21,7 @@
   let shortlistedJobs = new Set();
   let settings = null;
   let modalObserver = null;
+  let isClosingModal = false;
 
   const DEFAULT_SETTINGS = {
     newJobDaysThreshold: 7,
@@ -198,7 +199,8 @@
 
   function checkAndHighlightNewJob(row) {
     // Look for NEW badge or deadline text
-    const hasNewBadge = row.querySelector('.badge-new, span:contains("NEW")');
+    const hasNewBadge = row.querySelector('.badge-new') || 
+                        Array.from(row.querySelectorAll('span')).some(span => span.textContent.trim() === 'NEW');
     const deadlineText = row.textContent.match(/Deadline in (\d+) day/);
     
     if (hasNewBadge || (deadlineText && parseInt(deadlineText[1]) > (settings?.newJobDaysThreshold || 7) - 7)) {
@@ -384,69 +386,95 @@
   }
 
   function navigateJob(delta) {
+    console.log('[WAW] === navigateJob START ===');
+    console.log('[WAW] delta:', delta);
+    console.log('[WAW] currentJobIndex (before):', currentJobIndex);
+    
     // Refresh job links if needed
     if (jobLinks.length === 0) {
       getAllJobLinks();
     }
+    console.log('[WAW] jobLinks.length:', jobLinks.length);
 
-    // Determine current index from modal if not set
-    if (currentJobIndex < 0) {
-      const modalJobId = getCurrentModalJobId();
-      if (modalJobId) {
-        for (let i = 0; i < jobLinks.length; i++) {
-          const row = jobLinks[i].closest('tr');
-          if (row && getJobIdFromRow(row) === modalJobId) {
-            currentJobIndex = i;
-            break;
-          }
+    // If still no job links, can't navigate
+    if (jobLinks.length === 0) {
+      showNotification('No jobs found on this page', 'info');
+      return;
+    }
+
+    // Always detect current job from modal for accuracy
+    // (User may have clicked a different job directly, so we can't rely on cached index)
+    const modalJobId = getCurrentModalJobId();
+    console.log('[WAW] modalJobId:', modalJobId);
+    
+    if (modalJobId) {
+      let foundIndex = -1;
+      for (let i = 0; i < jobLinks.length; i++) {
+        const row = jobLinks[i].closest('tr');
+        if (row && String(getJobIdFromRow(row)) === String(modalJobId)) {
+          foundIndex = i;
+          console.log('[WAW] Found matching job at index:', i);
+          break;
         }
       }
+      
+      if (foundIndex >= 0) {
+        currentJobIndex = foundIndex;
+      } else if (currentJobIndex < 0) {
+        // Fallback: couldn't find job and no previous index
+        currentJobIndex = delta > 0 ? 0 : jobLinks.length - 1;
+        console.log(`[WAW] Could not find job in list, starting at index ${currentJobIndex}`);
+      }
+      // If foundIndex is -1 but currentJobIndex >= 0, keep the existing index
+    } else if (currentJobIndex < 0) {
+      // No modal job ID and no previous index
+      currentJobIndex = delta > 0 ? 0 : jobLinks.length - 1;
+      console.log(`[WAW] No modal job ID, starting at index ${currentJobIndex}`);
     }
+    
+    console.log('[WAW] currentJobIndex (after detection):', currentJobIndex);
 
     // Calculate new index
     let newIndex = currentJobIndex + delta;
+    console.log('[WAW] newIndex:', newIndex);
+    console.log('[WAW] Check: newIndex >= jobLinks.length?', newIndex, '>=', jobLinks.length, '=', newIndex >= jobLinks.length);
+    console.log('[WAW] Check: newIndex < 0?', newIndex, '< 0 =', newIndex < 0);
 
     // Handle wrapping / pagination
     if (newIndex < 0) {
+      console.log('[WAW] ENTERING: Previous page block');
       // Try to go to previous page
-      const prevPageBtn = document.querySelector(
-        '.pagination .previous:not(.disabled) a, ' +
-        '.pagination .prev:not(.disabled) a, ' +
-        '.pagination .previous:not(.disabled), ' +
-        '.pagination .prev:not(.disabled), ' +
-        'a[aria-label="Previous"], ' +
-        'button[aria-label="Previous"], ' +
-        '.pager .prev:not(.disabled), ' +
-        'a[rel="prev"]'
-      );
+      const prevPageBtn = document.querySelector('a[aria-label="Go to previous page"]');
+      console.log('[WAW] prevPageBtn:', prevPageBtn);
       if (prevPageBtn) {
-        // Close modal, watch for table update, then navigate to last job
+        // Close modal first, then wait for it to close before pagination
         closeModal();
-        waitForTableUpdateThenNavigate('last');
-        prevPageBtn.click();
+        setTimeout(() => {
+          waitForTableUpdateThenNavigate('last');
+          prevPageBtn.click();
+        }, 200);
         return;
       }
       newIndex = 0;
       showNotification('First job (no previous page)', 'info');
     } else if (newIndex >= jobLinks.length) {
+      console.log('[WAW] ENTERING: Next page block');
       // Try to go to next page
-      const nextPageBtn = document.querySelector(
-        '.pagination .next:not(.disabled) a, ' +
-        '.pagination .next:not(.disabled), ' +
-        'a[aria-label="Next"], ' +
-        'button[aria-label="Next"], ' +
-        '.pager .next:not(.disabled), ' +
-        'a[rel="next"]'
-      );
+      const nextPageBtn = document.querySelector('a[aria-label="Go to next page"]');
+      console.log('[WAW] nextPageBtn:', nextPageBtn);
       if (nextPageBtn) {
-        // Close modal, watch for table update, then navigate to first job
+        // Close modal first, then wait for it to close before pagination
         closeModal();
-        waitForTableUpdateThenNavigate('first');
-        nextPageBtn.click();
+        setTimeout(() => {
+          waitForTableUpdateThenNavigate('first');
+          nextPageBtn.click();
+        }, 200);
         return;
       }
       newIndex = jobLinks.length - 1;
       showNotification('Last job (no next page)', 'info');
+    } else {
+      console.log('[WAW] NORMAL: Staying on same page, going to index', newIndex);
     }
 
     currentJobIndex = newIndex;
@@ -478,14 +506,19 @@
   }
 
   function closeModal() {
+    // Prevent infinite recursion
+    if (isClosingModal) return;
+    isClosingModal = true;
+    
     // Find and click close button
     const closeBtn = document.querySelector('div[data-v-70e7ded6-s] button[aria-label="Close"], .modal__close, button.close');
     if (closeBtn) {
       closeBtn.click();
-    } else {
-      // Try pressing Escape
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
     }
+    // Removed Escape key dispatch to prevent recursion with keyboard handler
+    
+    // Reset flag after a short delay
+    setTimeout(() => { isClosingModal = false; }, 100);
   }
 
   // ============================================
@@ -496,25 +529,23 @@
     // Store current job IDs to detect when table content changes
     const currentJobIds = new Set(jobLinks.map(link => {
       const row = link.closest('tr');
-      return row ? getJobIdFromRow(row) : null;
+      return row ? String(getJobIdFromRow(row)) : null;
     }).filter(Boolean));
 
-    const tableContainer = document.querySelector('tbody[data-v-612a1958]') || 
-                           document.querySelector('table tbody');
-    if (!tableContainer) {
-      console.log('[WAW] Table container not found for pagination watch');
-      return;
-    }
+    console.log(`[WAW] Watching for table update, will navigate to ${position} job. Current jobs: ${currentJobIds.size}`);
 
-    console.log(`[WAW] Watching for table update, will navigate to ${position} job`);
+    let attempts = 0;
+    const maxAttempts = 30; // 3 seconds at 100ms intervals
 
-    const observer = new MutationObserver(() => {
+    const checkForUpdate = () => {
+      attempts++;
+      
       // Refresh job links
       getAllJobLinks();
       
       const newJobIds = new Set(jobLinks.map(link => {
         const row = link.closest('tr');
-        return row ? getJobIdFromRow(row) : null;
+        return row ? String(getJobIdFromRow(row)) : null;
       }).filter(Boolean));
 
       // Check if job IDs have changed (new page loaded)
@@ -523,7 +554,6 @@
 
       if (hasChanged) {
         console.log('[WAW] Table content changed, navigating to ' + position);
-        observer.disconnect();
         
         // Wait for table to stabilize, then navigate
         setTimeout(() => {
@@ -536,6 +566,7 @@
           }
 
           if (jobLinks[currentJobIndex]) {
+            console.log(`[WAW] Clicking job at index ${currentJobIndex}`);
             jobLinks[currentJobIndex].click();
             
             // Trigger job info rearranger after modal loads
@@ -546,18 +577,20 @@
                 window.AzureJobInfoRearranger.enhance();
               }
             }, 300);
+          } else {
+            console.log('[WAW] No job link found at index ' + currentJobIndex);
           }
         }, 300);
+      } else if (attempts < maxAttempts) {
+        // Keep polling
+        setTimeout(checkForUpdate, 100);
+      } else {
+        console.log('[WAW] Pagination watch timed out after 3 seconds');
       }
-    });
+    };
 
-    observer.observe(tableContainer, { childList: true, subtree: true });
-
-    // Timeout fallback - disconnect after 5 seconds if nothing happens
-    setTimeout(() => {
-      observer.disconnect();
-      console.log('[WAW] Pagination watch timed out');
-    }, 5000);
+    // Start polling after a short delay
+    setTimeout(checkForUpdate, 100);
   }
 
   // ============================================
@@ -596,6 +629,8 @@
             if (jid) toggleShortlistJob(jid);
             break;
           case 'Escape':
+            // Only handle real user events, not synthetic ones (prevents recursion)
+            if (!e.isTrusted) return;
             e.preventDefault();
             closeModal();
             break;
