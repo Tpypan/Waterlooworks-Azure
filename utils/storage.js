@@ -21,7 +21,13 @@ const StorageKeys = {
   // Job posting settings
   HIGHLIGHT_NEW: 'highlightNew',
   OPEN_IN_NEW_TAB: 'openInNewTab',
-  
+  NEW_JOB_DAYS_THRESHOLD: 'newJobDaysThreshold',
+
+  // Job posting layout / rearranger
+  JOB_REARRANGER_ENABLED: 'jobRearrangerEnabled',
+  JOB_REARRANGER_PRIORITY_KEYS: 'jobRearrangerPriorityKeys',
+  JOB_REARRANGER_STANDARD_ORDER: 'jobRearrangerStandardOrder',
+
   // Messages settings
   HIGHLIGHT_UNREAD: 'highlightUnread',
   
@@ -43,8 +49,12 @@ const DefaultSettings = {
   [StorageKeys.STICKY_NAV]: true,
   [StorageKeys.HIGHLIGHT_NEW]: true,
   [StorageKeys.OPEN_IN_NEW_TAB]: true,
+  [StorageKeys.NEW_JOB_DAYS_THRESHOLD]: 7,
+  [StorageKeys.JOB_REARRANGER_ENABLED]: true,
+  [StorageKeys.JOB_REARRANGER_PRIORITY_KEYS]: ['duration', 'location', 'compensation', 'deadline', 'method'],
+  [StorageKeys.JOB_REARRANGER_STANDARD_ORDER]: ['job_description', 'responsibilities', 'required_skills', 'targeted_degrees'],
   [StorageKeys.HIGHLIGHT_UNREAD]: true,
-  [StorageKeys.VERSION]: '4.0.0',
+  [StorageKeys.VERSION]: '5.0.0',
   [StorageKeys.FIRST_RUN]: true
 };
 

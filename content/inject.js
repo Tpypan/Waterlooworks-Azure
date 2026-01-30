@@ -1,12 +1,25 @@
 /**
- * Main Injection Script for WaterlooWorks Azure
+ * Main Injection Script for WaterlooActuallyWorks
  * Entry point for content script functionality
  */
 
 const Azure = {
-  version: '4.0.0',
+  version: '5.0.0',
   initialized: false,
   settings: null,
+
+  /**
+   * Check if current page is a login/home page
+   */
+  isLoginPage() {
+    const url = window.location.href;
+    const path = window.location.pathname;
+    return path === '/' || 
+           path === '/home.htm' || 
+           path.includes('/login') ||
+           url.includes('home.htm') ||
+           document.querySelector('#loginForm, form[action*="login"]') !== null;
+  },
 
   /**
    * Main initialization
@@ -14,7 +27,7 @@ const Azure = {
   async init() {
     if (this.initialized) return;
     
-    console.log(`[Azure] WaterlooWorks Azure v${this.version} initializing...`);
+    console.log(`[WAW] WaterlooActuallyWorks v${this.version} initializing...`);
 
     try {
       // Load settings
@@ -22,7 +35,7 @@ const Azure = {
       
       // Check if extension is globally enabled
       if (!this.settings.featuresEnabled) {
-        console.log('[Azure] Extension disabled by user');
+        console.log('[WAW] Extension disabled by user');
         return;
       }
 
@@ -31,6 +44,12 @@ const Azure = {
 
       // Initialize observers
       window.AzureObservers.init();
+
+      // Mark login page to protect its styling
+      if (this.isLoginPage()) {
+        document.body.classList.add('waw-login-page');
+        console.log('[WAW] Login page detected, minimal styling applied');
+      }
 
       // Apply initial state
       this.applyTheme();
@@ -45,9 +64,12 @@ const Azure = {
         this.onDOMReady();
       });
 
-      // Also init when fully loaded for keyboard nav
+      // Also init when fully loaded
       window.addEventListener('load', () => {
-        this.initKeyboardNav();
+        // Re-check login page after full load
+        if (this.isLoginPage()) {
+          document.body.classList.add('waw-login-page');
+        }
       });
 
       // Listen for settings changes
@@ -56,10 +78,10 @@ const Azure = {
       });
 
       this.initialized = true;
-      console.log('[Azure] Initialization complete');
+      console.log('[WAW] Initialization complete');
 
     } catch (error) {
-      console.error('[Azure] Initialization failed:', error);
+      console.error('[WAW] Initialization failed:', error);
     }
   },
 
@@ -67,18 +89,24 @@ const Azure = {
    * Apply theme based on settings
    */
   applyTheme() {
+    // Don't apply heavy theming on login page
+    if (this.isLoginPage()) {
+      console.log('[WAW] Skipping theme on login page');
+      return;
+    }
+
     window.AzureFeatureFlags.withFeature('themes', () => {
       const themeId = this.settings.themeId || 'azure-light';
       const darkMode = this.shouldUseDarkMode();
       
       // Add theme class to body
-      document.documentElement.classList.add('azure-themed');
+      document.documentElement.classList.add('azure-themed', 'waw-themed');
       document.documentElement.setAttribute('data-azure-theme', themeId);
       
       if (darkMode) {
-        document.documentElement.classList.add('azure-dark');
+        document.documentElement.classList.add('azure-dark', 'waw-dark');
       } else {
-        document.documentElement.classList.remove('azure-dark');
+        document.documentElement.classList.remove('azure-dark', 'waw-dark');
       }
 
       // Inject theme stylesheet
@@ -89,7 +117,7 @@ const Azure = {
       const layoutUrl = chrome.runtime.getURL('ui/layout/layout.css');
       window.AzureDOMHooks.injectStylesheet(layoutUrl, 'azure-layout-css');
 
-      console.log(`[Azure] Theme applied: ${themeId}, dark mode: ${darkMode}`);
+      console.log(`[WAW] Theme applied: ${themeId}, dark mode: ${darkMode}`);
     });
   },
 
@@ -190,6 +218,13 @@ const Azure = {
         window.AzureDOMHooks.cleanup();
       }
     }
+
+    // Job rearranger settings changed: re-initialize to pick up new settings
+    if (changes.jobRearrangerEnabled || changes.jobRearrangerPriorityKeys || changes.jobRearrangerStandardOrder) {
+      if (window.AzureJobInfoRearranger && window.AzureJobInfoRearranger.init) {
+        window.AzureJobInfoRearranger.init();
+      }
+    }
   },
 
   /**
@@ -197,7 +232,9 @@ const Azure = {
    * @param {string} pageType - Type of page
    */
   applyPageEnhancements(pageType) {
-    // Check if this is a posting detail page
+    // Job info rearranger now runs independently via MutationObserver (see job-info-rearranger.js)
+    // No need to call it here - it self-initializes
+    
     const url = window.location.href;
     if (url.includes('posting.htm') || url.includes('postingId=')) {
       this.enhancePostingDetail();
@@ -233,22 +270,10 @@ const Azure = {
    * Enhance posting detail page
    */
   enhancePostingDetail() {
-    console.log('[Azure] Enhancing posting detail page');
+    console.log('[WAW] Enhancing posting detail page');
     
-    // Rearrange job information - with retry
-    const tryRearrange = (attempts = 0) => {
-      if (window.AzureJobInfoRearranger) {
-        window.AzureJobInfoRearranger.init();
-      } else if (attempts < 5) {
-        setTimeout(() => tryRearrange(attempts + 1), 500);
-      }
-    };
-    tryRearrange();
-    
-    // Initialize keyboard navigation for detail page
-    if (window.AzureKeyboardNav) {
-      window.AzureKeyboardNav.init();
-    }
+    // Job info rearranger and navigator now run independently via MutationObserver
+    // They will automatically detect and enhance the modal when it opens
   },
 
   /**
@@ -291,15 +316,7 @@ const Azure = {
       this.applyBatchOperations();
     });
 
-    // Initialize keyboard navigation
-    window.AzureFeatureFlags.withFeature('shortcuts', () => {
-      if (window.AzureKeyboardNav) {
-        // Wait for DOM to be ready with job rows
-        setTimeout(() => {
-          window.AzureKeyboardNav.init();
-        }, 500);
-      }
-    });
+    // Navigator handles keyboard navigation automatically via navigator.js
   },
 
   /**
@@ -367,30 +384,13 @@ const Azure = {
     });
   },
 
-  /**
-   * Initialize keyboard navigation
-   */
-  initKeyboardNav() {
-    // Initialize keyboard nav on any page that might have job tables
-    if (window.AzureKeyboardNav) {
-      console.log('[Azure] Initializing keyboard navigation');
-      window.AzureKeyboardNav.init();
-    }
-  }
 };
 
 // Initialize when script loads
 Azure.init();
 
-// Also initialize keyboard nav directly after a delay (backup)
-setTimeout(() => {
-  if (window.AzureKeyboardNav && !window.AzureKeyboardNav.initialized) {
-    console.log('[Azure] Late init keyboard navigation');
-    window.AzureKeyboardNav.init();
-  }
-}, 1500);
-
 // Export for debugging
 if (typeof window !== 'undefined') {
   window.Azure = Azure;
+  window.WAW = Azure; // Alias for new branding
 }

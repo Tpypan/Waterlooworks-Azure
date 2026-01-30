@@ -1,5 +1,5 @@
 /**
- * Popup Styles for WaterlooWorks Azure
+ * Popup Styles for WaterlooActuallyWorks
  */
 
 * {
@@ -9,8 +9,9 @@
 }
 
 :root {
-  --primary: #45b6f7;
-  --primary-hover: #2da8f0;
+  --primary: #667eea;
+  --primary-hover: #5a67d8;
+  --accent: #764ba2;
   --bg-primary: #ffffff;
   --bg-secondary: #f8f9fa;
   --bg-tertiary: #e9ecef;
@@ -20,7 +21,7 @@
 }
 
 body {
-  width: 280px;
+  width: 300px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-size: 14px;
   color: var(--text-primary);
@@ -38,7 +39,7 @@ body {
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background: linear-gradient(135deg, var(--primary) 0%, #2da8f0 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
   color: white;
 }
 

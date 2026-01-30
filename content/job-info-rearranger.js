@@ -1,280 +1,512 @@
 /**
  * Job Information Rearranger for WaterlooWorks Azure
- * Reorders job posting info to show important stuff first
+ * Based on the working WaterlooWorks Job Navigator extension
+ * Reorders job posting info in the modal: key info at top (highlighted),
+ * then job description, responsibilities, skills, targeted degrees, then the rest.
  */
 
-const JobInfoRearranger = {
-  initialized: false,
+(function() {
+  'use strict';
 
-  // Fields to show at top in priority box
-  priorityFields: [
-    'work term duration',
-    'location', // We'll build this from city + province
-    'compensation',
-    'benefits',
-    'compensation and benefits',
-    'application deadline',
-    'apply by'
-  ],
+  // Check if we're on WaterlooWorks
+  if (!window.location.href.includes('waterlooworks.uwaterloo.ca')) {
+    return;
+  }
 
-  // Application method - only show if irregular
-  methodField: 'application method',
+  console.log('[Azure] Job Info Rearranger loading...');
 
-  // Standard order after priority
-  standardOrder: [
-    'job summary',
-    'summary',
-    'job responsibilities', 
-    'responsibilities',
-    'required skills',
-    'skills',
-    'job requirements',
-    'requirements',
-    'targeted degrees',
-    'disciplines'
-  ],
+  // Global state
+  let modalObserver = null;
+  let isEnhancing = false;
+  let settings = null;
 
-  init() {
-    if (this.initialized) return;
-    
-    const url = window.location.href;
-    if (!url.includes('posting')) return;
+  // Default settings
+  const DEFAULT_SETTINGS = {
+    jobRearrangerEnabled: true,
+    jobRearrangerPriorityKeys: ['duration', 'location', 'compensation', 'deadline', 'method'],
+    jobRearrangerStandardOrder: ['job_description', 'responsibilities', 'required_skills', 'targeted_degrees']
+  };
 
-    console.log('[Azure] Initializing job info rearranger');
-    
-    // Wait for content to load
-    setTimeout(() => this.rearrange(), 800);
-    this.initialized = true;
-  },
+  // Label to key mapping (matches actual WaterlooWorks labels)
+  const LABEL_TO_KEY = {
+    'work term duration': 'duration',
+    'work term': 'work_term',
+    'region': 'location',
+    'job - city': 'city',
+    'job - province/state': 'province',
+    'job - country': 'country',
+    'job - address line one': 'address',
+    'job - postal/zip code': 'postal',
+    'employment location arrangement': 'arrangement',
+    'compensation and benefits': 'compensation',
+    'application deadline': 'deadline',
+    'application delivery': 'method',
+    'if by website, go to': 'external_url',
+    'job summary': 'job_description',
+    'job responsibilities': 'responsibilities',
+    'required skills': 'required_skills',
+    'targeted degrees and disciplines': 'targeted_degrees'
+  };
 
-  rearrange() {
-    // Find the job posting container
-    const container = document.querySelector('#postingDiv') ||
-                      document.querySelector('.posting-details') ||
-                      document.querySelector('#mainContentDiv .boxContent') ||
-                      document.querySelector('#mainContentDiv');
-    
-    if (!container) {
-      console.log('[Azure] No container found');
-      return;
-    }
-
-    // Parse all the field/value pairs from the page
-    const fields = this.parseFields(container);
-    console.log('[Azure] Parsed fields:', fields);
-
-    if (Object.keys(fields).length === 0) {
-      console.log('[Azure] No fields found');
-      return;
-    }
-
-    // Build the priority info section
-    const priorityData = this.extractPriorityData(fields);
-    
-    // Create and insert the priority box
-    this.insertPriorityBox(container, priorityData);
-    
-    // Reorder the remaining content
-    this.reorderContent(container, fields);
-  },
-
-  parseFields(container) {
-    const fields = {};
-    
-    // Method 1: Find bold elements followed by text
-    const boldElements = container.querySelectorAll('strong, b');
-    
-    boldElements.forEach(bold => {
-      let label = bold.textContent.trim().replace(/:$/, '').toLowerCase();
-      
-      // Get the value - could be next sibling text or next element
-      let value = '';
-      let valueNode = bold.nextSibling;
-      
-      // Collect text until next bold or block element
-      while (valueNode) {
-        if (valueNode.nodeType === Node.TEXT_NODE) {
-          value += valueNode.textContent;
-        } else if (valueNode.nodeType === Node.ELEMENT_NODE) {
-          if (valueNode.tagName === 'STRONG' || valueNode.tagName === 'B') break;
-          if (valueNode.tagName === 'BR') {
-            value += ' ';
-          } else {
-            value += valueNode.textContent;
-          }
-        }
-        valueNode = valueNode.nextSibling;
+  // Load settings from storage
+  async function loadSettings() {
+    try {
+      if (window.AzureStorage) {
+        const loaded = await window.AzureStorage.getSettings([
+          'jobRearrangerEnabled',
+          'jobRearrangerPriorityKeys',
+          'jobRearrangerStandardOrder'
+        ]);
+        settings = {
+          jobRearrangerEnabled: loaded.jobRearrangerEnabled !== false,
+          jobRearrangerPriorityKeys: loaded.jobRearrangerPriorityKeys || DEFAULT_SETTINGS.jobRearrangerPriorityKeys,
+          jobRearrangerStandardOrder: loaded.jobRearrangerStandardOrder || DEFAULT_SETTINGS.jobRearrangerStandardOrder
+        };
+      } else {
+        settings = DEFAULT_SETTINGS;
       }
-      
-      value = value.trim();
-      if (label && value) {
-        fields[label] = { value, element: bold.parentElement || bold };
-      }
-    });
-
-    // Method 2: Look for label:value patterns in divs/paragraphs
-    const textBlocks = container.querySelectorAll('p, div, span, td');
-    textBlocks.forEach(block => {
-      const text = block.textContent.trim();
-      const colonIdx = text.indexOf(':');
-      if (colonIdx > 0 && colonIdx < 60) {
-        const label = text.substring(0, colonIdx).trim().toLowerCase();
-        const value = text.substring(colonIdx + 1).trim();
-        if (label && value && !fields[label]) {
-          fields[label] = { value, element: block };
-        }
-      }
-    });
-
-    return fields;
-  },
-
-  extractPriorityData(fields) {
-    const priority = [];
-
-    // Work Term Duration
-    const duration = this.findField(fields, ['work term duration', 'duration', 'term duration']);
-    if (duration) {
-      priority.push({ label: 'Duration', value: duration.value, key: 'duration' });
+      console.log('[Azure] Rearranger settings loaded:', settings);
+    } catch (e) {
+      console.error('[Azure] Failed to load settings:', e);
+      settings = DEFAULT_SETTINGS;
     }
+  }
 
-    // Location - combine city and province
-    const city = this.findField(fields, ['job - city', 'city', 'job city']);
-    const province = this.findField(fields, ['job - province/state', 'province', 'state', 'job province']);
-    if (city || province) {
-      const locationParts = [];
-      if (city) locationParts.push(city.value);
-      if (province) locationParts.push(province.value);
-      priority.push({ label: 'Location', value: locationParts.join(', '), key: 'location' });
-    } else {
-      // Try region field
-      const region = this.findField(fields, ['region', 'location']);
-      if (region) {
-        priority.push({ label: 'Location', value: region.value, key: 'location' });
-      }
-    }
+  // Check if modal is open
+  function isModalOpen() {
+    return document.querySelector('div[data-v-70e7ded6-s]') !== null;
+  }
 
-    // Compensation
-    const comp = this.findField(fields, ['compensation', 'salary', 'pay', 'compensation and benefits', 'benefits']);
-    if (comp) {
-      priority.push({ label: 'Compensation', value: comp.value, key: 'compensation' });
-    }
-
-    // Application Deadline
-    const deadline = this.findField(fields, ['application deadline', 'deadline', 'apply by', 'due date']);
-    if (deadline) {
-      priority.push({ label: 'Deadline', value: deadline.value, key: 'deadline' });
-    }
-
-    // Application Method - only if irregular
-    const method = this.findField(fields, ['application method', 'how to apply', 'apply method']);
-    if (method) {
-      const methodLower = method.value.toLowerCase();
-      // Only show if NOT just "WaterlooWorks"
-      if (!methodLower.match(/^waterlooworks$/i) && 
-          !methodLower.match(/^waterlooworks only$/i) &&
-          methodLower.length > 0) {
-        priority.push({ label: 'Apply Via', value: method.value, key: 'method' });
-      }
-    }
-
-    return priority;
-  },
-
-  findField(fields, possibleNames) {
-    for (const name of possibleNames) {
-      // Exact match
-      if (fields[name]) return fields[name];
-      
-      // Partial match
-      for (const key of Object.keys(fields)) {
-        if (key.includes(name) || name.includes(key)) {
-          return fields[key];
-        }
+  // Get label key from text
+  function getLabelKey(labelText) {
+    const lower = labelText.trim().toLowerCase().replace(/:$/, '');
+    if (LABEL_TO_KEY[lower]) return LABEL_TO_KEY[lower];
+    
+    // Partial match
+    for (const [pattern, key] of Object.entries(LABEL_TO_KEY)) {
+      if (lower.includes(pattern) || pattern.includes(lower)) {
+        return key;
       }
     }
     return null;
-  },
+  }
 
-  insertPriorityBox(container, priorityData) {
-    if (priorityData.length === 0) {
-      console.log('[Azure] No priority data to show');
-      return;
-    }
-
-    // Remove existing priority box if any
-    const existing = document.querySelector('.azure-priority-box');
-    if (existing) existing.remove();
-
-    // Create the priority box
-    const box = document.createElement('div');
-    box.className = 'azure-priority-box';
+  // Parse all fields from the modal
+  function parseFieldsFromModal(modalContainer) {
+    const fields = {};
+    const fieldElements = {};
     
-    let html = '<div class="azure-priority-header">📋 Key Information</div>';
-    html += '<div class="azure-priority-content">';
+    // Find all .tag__key-value-list elements
+    const keyValueLists = modalContainer.querySelectorAll('.tag__key-value-list');
+    console.log(`[Azure] Found ${keyValueLists.length} key-value lists`);
     
-    for (const item of priorityData) {
-      html += `
-        <div class="azure-priority-item azure-priority-${item.key}">
-          <span class="azure-priority-label">${item.label}</span>
-          <span class="azure-priority-value">${item.value}</span>
-        </div>
-      `;
-    }
-    
-    html += '</div>';
-    box.innerHTML = html;
-
-    // Insert at the very top of the container
-    const firstChild = container.firstElementChild;
-    if (firstChild) {
-      container.insertBefore(box, firstChild);
-    } else {
-      container.appendChild(box);
-    }
-
-    console.log('[Azure] Priority box inserted');
-  },
-
-  reorderContent(container, fields) {
-    // For now, we'll just highlight the standard sections
-    // Full reordering would require more DOM manipulation
-    
-    // Add visual indicators to important sections
-    const boldElements = container.querySelectorAll('strong, b');
-    
-    boldElements.forEach(bold => {
-      const label = bold.textContent.trim().toLowerCase().replace(/:$/, '');
+    keyValueLists.forEach(kvList => {
+      const parentDiv = kvList.parentElement;
+      if (!parentDiv) return;
       
-      // Check if this is a priority field - dim it since we showed it above
-      const isPriority = this.priorityFields.some(p => label.includes(p) || p.includes(label));
-      const isCity = label.includes('city') || label.includes('province');
+      // Find the label
+      const labelElement = kvList.querySelector('span.label, .label');
+      if (!labelElement) return;
       
-      if (isPriority || isCity) {
-        // Dim the original since we're showing it in priority box
-        const parent = bold.parentElement;
-        if (parent) {
-          parent.classList.add('azure-dimmed-field');
+      const labelText = labelElement.textContent.trim().replace(/:$/, '');
+      if (!labelText) return;
+      
+      // Get the value
+      const valueElement = kvList.querySelector('p');
+      let value = '';
+      if (valueElement) {
+        value = valueElement.textContent.trim();
+        // Also check for tables (like Level field)
+        const table = kvList.querySelector('.container--table, table');
+        if (table && !value) {
+          value = table.textContent.trim();
         }
       }
       
-      // Highlight standard important sections
-      const isStandard = this.standardOrder.some(s => label.includes(s) || s.includes(label));
-      if (isStandard) {
-        bold.classList.add('azure-important-section');
+      const key = getLabelKey(labelText);
+      if (key) {
+        fields[key] = { label: labelText, value: value, element: parentDiv };
+        fieldElements[key] = parentDiv;
+        console.log(`[Azure] Parsed field: ${labelText} -> ${key}`);
       }
     });
+    
+    return { fields, fieldElements };
   }
-};
 
-// Auto-initialize
-if (typeof window !== 'undefined') {
-  window.AzureJobInfoRearranger = JobInfoRearranger;
-  
-  // Try to init on load
-  if (document.readyState === 'complete') {
-    JobInfoRearranger.init();
-  } else {
-    window.addEventListener('load', () => JobInfoRearranger.init());
+  // Build location from city + province
+  function buildLocation(fields) {
+    const parts = [];
+    if (fields.city) parts.push(fields.city.value);
+    if (fields.province) parts.push(fields.province.value);
+    if (parts.length > 0) {
+      return parts.join(', ');
+    }
+    // Fallback to region if present
+    if (fields.location) return fields.location.value;
+    return null;
   }
-}
+
+  // Create the priority info box
+  function createPriorityBox(fields) {
+    if (!settings.jobRearrangerEnabled) return null;
+    
+    const priorityKeys = settings.jobRearrangerPriorityKeys || [];
+    const priorityItems = [];
+    
+    // Duration
+    if (priorityKeys.includes('duration') && fields.duration) {
+      priorityItems.push({
+        label: 'Work Term Duration',
+        value: fields.duration.value,
+        key: 'duration'
+      });
+    }
+    
+    // Location (city + province)
+    if (priorityKeys.includes('location')) {
+      const locationValue = buildLocation(fields);
+      if (locationValue) {
+        priorityItems.push({
+          label: 'Location',
+          value: locationValue,
+          key: 'location'
+        });
+      }
+    }
+    
+    // Compensation
+    if (priorityKeys.includes('compensation') && fields.compensation) {
+      priorityItems.push({
+        label: 'Compensation & Benefits',
+        value: fields.compensation.value,
+        key: 'compensation'
+      });
+    }
+    
+    // Deadline
+    if (priorityKeys.includes('deadline') && fields.deadline) {
+      priorityItems.push({
+        label: 'Application Deadline',
+        value: fields.deadline.value,
+        key: 'deadline'
+      });
+    }
+    
+    // Application method (only if not WaterlooWorks)
+    if (priorityKeys.includes('method') && fields.method) {
+      const methodLower = fields.method.value.toLowerCase().trim();
+      const isRegular = /^waterlooworks$/i.test(methodLower) || 
+                        methodLower.includes('waterlooworks') ||
+                        methodLower === '';
+      if (!isRegular) {
+        priorityItems.push({
+          label: 'Apply Via',
+          value: fields.method.value,
+          key: 'method'
+        });
+        // Also add the URL if present
+        if (fields.external_url && fields.external_url.value) {
+          priorityItems.push({
+            label: 'Application URL',
+            value: fields.external_url.value,
+            key: 'external_url',
+            isLink: true
+          });
+        }
+      }
+    }
+    
+    if (priorityItems.length === 0) return null;
+    
+    // Create the box
+    const box = document.createElement('div');
+    box.className = 'azure-priority-box';
+    box.style.cssText = `
+      background: linear-gradient(135deg, #1a5276 0%, #2471a3 100%);
+      border-radius: 12px;
+      padding: 0;
+      margin: 0 0 24px 0;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    `;
+    
+    const header = document.createElement('div');
+    header.className = 'azure-priority-header';
+    header.textContent = 'Key Information';
+    header.style.cssText = `
+      background: rgba(0, 0, 0, 0.2);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 12px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    `;
+    box.appendChild(header);
+    
+    const content = document.createElement('div');
+    content.className = 'azure-priority-content';
+    content.style.cssText = `
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1px;
+      background: rgba(0, 0, 0, 0.1);
+    `;
+    
+    priorityItems.forEach(item => {
+      const itemDiv = document.createElement('div');
+      itemDiv.className = `azure-priority-item azure-priority-${item.key}`;
+      itemDiv.style.cssText = `
+        background: rgba(255, 255, 255, 0.05);
+        padding: 14px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      `;
+      
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'azure-priority-label';
+      labelSpan.textContent = item.label;
+      labelSpan.style.cssText = `
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: rgba(255, 255, 255, 0.7);
+      `;
+      
+      const valueSpan = document.createElement('span');
+      valueSpan.className = 'azure-priority-value';
+      valueSpan.style.cssText = `
+        font-size: 15px;
+        font-weight: 600;
+        color: #fff;
+        line-height: 1.4;
+        word-break: break-word;
+      `;
+      
+      if (item.isLink && item.value.startsWith('http')) {
+        const link = document.createElement('a');
+        link.href = item.value;
+        link.target = '_blank';
+        link.textContent = item.value.length > 50 ? item.value.substring(0, 50) + '...' : item.value;
+        link.style.cssText = 'color: #85c1e9; text-decoration: underline;';
+        valueSpan.appendChild(link);
+      } else {
+        valueSpan.textContent = item.value;
+      }
+      
+      // Color coding for specific fields
+      if (item.key === 'duration') valueSpan.style.color = '#82e0aa';
+      if (item.key === 'location') valueSpan.style.color = '#85c1e9';
+      if (item.key === 'compensation') valueSpan.style.color = '#58d68d';
+      if (item.key === 'deadline') valueSpan.style.color = '#f1948a';
+      if (item.key === 'method') valueSpan.style.color = '#f8c471';
+      
+      itemDiv.appendChild(labelSpan);
+      itemDiv.appendChild(valueSpan);
+      content.appendChild(itemDiv);
+    });
+    
+    box.appendChild(content);
+    return box;
+  }
+
+  // Main enhancement function
+  function enhanceModal() {
+    if (!settings || !settings.jobRearrangerEnabled) {
+      console.log('[Azure] Rearranger disabled, skipping');
+      return;
+    }
+    
+    console.log('[Azure] Starting modal enhancement...');
+    
+    if (isEnhancing) {
+      console.log('[Azure] Already enhancing, skipping');
+      return;
+    }
+    
+    const modalContainer = document.querySelector('div[data-v-70e7ded6-s]');
+    if (!modalContainer) {
+      console.log('[Azure] Modal container not found');
+      return;
+    }
+    
+    // Check if already enhanced
+    if (modalContainer.dataset.azureEnhanced === 'true') {
+      console.log('[Azure] Modal already enhanced');
+      return;
+    }
+    
+    // Only enhance OVERVIEW tab
+    const activeTab = modalContainer.querySelector('[role="tab"][aria-selected="true"], .tab-item .items.active');
+    if (activeTab) {
+      const tabText = activeTab.textContent.trim().toUpperCase();
+      if (!tabText.includes('OVERVIEW')) {
+        console.log(`[Azure] Not on OVERVIEW tab (current: ${tabText}), skipping`);
+        return;
+      }
+    }
+    
+    isEnhancing = true;
+    
+    try {
+      // Parse all fields
+      const { fields, fieldElements } = parseFieldsFromModal(modalContainer);
+      console.log('[Azure] Parsed fields:', Object.keys(fields));
+      
+      if (Object.keys(fields).length === 0) {
+        console.log('[Azure] No fields found');
+        isEnhancing = false;
+        return;
+      }
+      
+      // Find the Job Posting Information panel
+      const panels = modalContainer.querySelectorAll('div[id^="panel_"]');
+      let jobInfoPanel = null;
+      
+      for (const panel of panels) {
+        const h4 = panel.querySelector('h4');
+        if (h4 && h4.textContent.includes('Job Posting Information')) {
+          jobInfoPanel = panel;
+          break;
+        }
+      }
+      
+      if (!jobInfoPanel) {
+        console.log('[Azure] Job Posting Information panel not found');
+        isEnhancing = false;
+        return;
+      }
+      
+      // Create and insert the priority box
+      const existingBox = modalContainer.querySelector('.azure-priority-box');
+      if (existingBox) existingBox.remove();
+      
+      const priorityBox = createPriorityBox(fields);
+      if (priorityBox) {
+        // Insert at the top of the Job Posting Information panel
+        const h4 = jobInfoPanel.querySelector('h4');
+        if (h4 && h4.nextSibling) {
+          jobInfoPanel.insertBefore(priorityBox, h4.nextSibling);
+        } else {
+          jobInfoPanel.insertBefore(priorityBox, jobInfoPanel.firstChild);
+        }
+        console.log('[Azure] Priority box inserted');
+      }
+      
+      // Hide the original priority fields (they're shown in the box)
+      const priorityKeys = settings.jobRearrangerPriorityKeys || [];
+      const locationKeys = ['city', 'province', 'country', 'address', 'postal'];
+      
+      for (const key of priorityKeys) {
+        if (key === 'location') {
+          // Hide all location-related fields
+          locationKeys.forEach(lk => {
+            if (fieldElements[lk]) {
+              fieldElements[lk].style.display = 'none';
+            }
+          });
+        } else if (fieldElements[key]) {
+          fieldElements[key].style.display = 'none';
+        }
+      }
+      
+      // Also hide deadline and method from their original locations (in Application Information panel)
+      if (fieldElements.deadline) fieldElements.deadline.style.display = 'none';
+      if (fieldElements.method) fieldElements.method.style.display = 'none';
+      if (fieldElements.external_url) fieldElements.external_url.style.display = 'none';
+      
+      modalContainer.dataset.azureEnhanced = 'true';
+      console.log('[Azure] Modal enhancement complete');
+      
+    } catch (e) {
+      console.error('[Azure] Enhancement error:', e);
+    }
+    
+    isEnhancing = false;
+  }
+
+  // Setup MutationObserver for modal detection
+  function setupModalObserver() {
+    if (modalObserver) return;
+    
+    modalObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        // Check for added nodes (modal opened)
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === 1) {
+            const modal = node.matches && node.matches('div[data-v-70e7ded6-s]') ? node :
+                         node.querySelector && node.querySelector('div[data-v-70e7ded6-s]');
+            
+            if (modal) {
+              console.log('[Azure] Modal detected via MutationObserver');
+              
+              // Wait for content to load then enhance
+              setTimeout(() => {
+                const tabPanel = modal.querySelector('[role="tabpanel"]');
+                if (tabPanel && tabPanel.querySelector('div[id^="panel_"]')) {
+                  enhanceModal();
+                } else {
+                  // Content not ready, wait more
+                  setTimeout(enhanceModal, 200);
+                }
+              }, 100);
+            }
+          }
+        }
+        
+        // Check for removed nodes (modal closed) - reset enhanced flag
+        for (const node of mutation.removedNodes) {
+          if (node.nodeType === 1 && node.matches && node.matches('div[data-v-70e7ded6-s]')) {
+            console.log('[Azure] Modal closed');
+          }
+        }
+      }
+    });
+    
+    modalObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    
+    console.log('[Azure] Modal observer setup complete');
+  }
+
+  // Initialize
+  async function initialize() {
+    console.log('[Azure] Initializing Job Info Rearranger...');
+    
+    await loadSettings();
+    
+    if (!settings.jobRearrangerEnabled) {
+      console.log('[Azure] Rearranger disabled by user');
+      return;
+    }
+    
+    setupModalObserver();
+    
+    // If modal is already open, enhance it
+    if (isModalOpen()) {
+      console.log('[Azure] Modal already open, enhancing...');
+      setTimeout(enhanceModal, 500);
+    }
+    
+    console.log('[Azure] Job Info Rearranger ready');
+  }
+
+  // Start initialization
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    initialize();
+  } else {
+    document.addEventListener('DOMContentLoaded', initialize);
+  }
+
+  // Export for external access
+  window.AzureJobInfoRearranger = {
+    init: initialize,
+    enhance: enhanceModal,
+    isModalOpen: isModalOpen
+  };
+
+})();

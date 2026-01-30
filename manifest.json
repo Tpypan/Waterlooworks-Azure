@@ -1,9 +1,9 @@
 {
-  "name": "WaterlooWorks Azure (Community Edition)",
-  "short_name": "WW Azure",
-  "version": "4.0.0",
+  "name": "WaterlooActuallyWorks",
+  "short_name": "WAW",
+  "version": "5.0.0",
   "manifest_version": 3,
-  "description": "Enhance your WaterlooWorks experience with themes, layout improvements, and workflow optimizations.",
+  "description": "Make WaterlooWorks actually work - with navigation, shortlisting, key info highlights, and more.",
   "author": "Community Fork",
 
   "icons": {
@@ -20,7 +20,7 @@
       "32": "icons/icon32.png"
     },
     "default_popup": "popup/popup.html",
-    "default_title": "WaterlooWorks Azure"
+    "default_title": "WaterlooActuallyWorks"
   },
 
   "background": {
@@ -42,7 +42,7 @@
         "content/feature-flags.js",
         "content/observers.js",
         "content/dom-hooks.js",
-        "content/keyboard-nav.js",
+        "content/navigator.js",
         "content/job-info-rearranger.js",
         "content/inject.js"
       ],

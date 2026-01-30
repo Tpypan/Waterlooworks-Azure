@@ -16,8 +16,12 @@ const DefaultSettings = {
   stickyNav: true,
   highlightNew: true,
   openInNewTab: true,
+  newJobDaysThreshold: 7,
+  jobRearrangerEnabled: true,
+  jobRearrangerPriorityKeys: ['duration', 'location', 'compensation', 'deadline', 'method'],
+  jobRearrangerStandardOrder: ['job_description', 'responsibilities', 'required_skills', 'targeted_degrees'],
   highlightUnread: true,
-  version: '4.0.0',
+  version: '5.0.0',
   firstRun: true
 };
 
@@ -37,8 +41,13 @@ const elements = {
   highlightNew: document.getElementById('highlight-new'),
   openNewTab: document.getElementById('open-new-tab'),
   batchOperations: document.getElementById('batch-operations'),
+  newJobDays: document.getElementById('new-job-days'),
   highlightUnread: document.getElementById('highlight-unread'),
   keyboardShortcuts: document.getElementById('keyboard-shortcuts'),
+  jobRearrangerEnabled: document.getElementById('job-rearranger-enabled'),
+  jobRearrangerPriorityKeys: document.getElementById('job-rearranger-priority-keys'),
+  jobRearrangerStandardOrder: document.getElementById('job-rearranger-standard-order'),
+  jobRearrangerReset: document.getElementById('job-rearranger-reset'),
   resetSettings: document.getElementById('reset-settings')
 };
 
@@ -61,9 +70,25 @@ async function loadSettings() {
     elements.highlightNew.checked = settings.highlightNew;
     elements.openNewTab.checked = settings.openInNewTab;
     elements.batchOperations.checked = settings.batchOperations;
+    if (elements.newJobDays) {
+      elements.newJobDays.value = settings.newJobDaysThreshold || 7;
+    }
     elements.highlightUnread.checked = settings.highlightUnread;
     elements.keyboardShortcuts.checked = settings.keyboardShortcuts;
-    
+    if (elements.jobRearrangerEnabled) {
+      elements.jobRearrangerEnabled.checked = settings.jobRearrangerEnabled !== false;
+    }
+    if (elements.jobRearrangerPriorityKeys) {
+      elements.jobRearrangerPriorityKeys.value = Array.isArray(settings.jobRearrangerPriorityKeys)
+        ? settings.jobRearrangerPriorityKeys.join('\n')
+        : DefaultSettings.jobRearrangerPriorityKeys.join('\n');
+    }
+    if (elements.jobRearrangerStandardOrder) {
+      elements.jobRearrangerStandardOrder.value = Array.isArray(settings.jobRearrangerStandardOrder)
+        ? settings.jobRearrangerStandardOrder.join('\n')
+        : DefaultSettings.jobRearrangerStandardOrder.join('\n');
+    }
+
     // Show/hide conditional UI
     updateDarkModeScheduleVisibility();
     
@@ -176,6 +201,10 @@ function initEventListeners() {
     saveSetting('batchOperations', e.target.checked);
   });
 
+  elements.newJobDays?.addEventListener('change', (e) => {
+    saveSetting('newJobDaysThreshold', parseInt(e.target.value) || 7);
+  });
+
   // Messages
   elements.highlightUnread.addEventListener('change', (e) => {
     saveSetting('highlightUnread', e.target.checked);
@@ -184,6 +213,25 @@ function initEventListeners() {
   // Keyboard shortcuts
   elements.keyboardShortcuts.addEventListener('change', (e) => {
     saveSetting('keyboardShortcuts', e.target.checked);
+  });
+
+  // Job posting layout
+  elements.jobRearrangerEnabled?.addEventListener('change', (e) => {
+    saveSetting('jobRearrangerEnabled', e.target.checked);
+  });
+  elements.jobRearrangerPriorityKeys?.addEventListener('blur', () => {
+    const arr = elements.jobRearrangerPriorityKeys.value.split('\n').map(s => s.trim()).filter(Boolean);
+    saveSetting('jobRearrangerPriorityKeys', arr);
+  });
+  elements.jobRearrangerStandardOrder?.addEventListener('blur', () => {
+    const arr = elements.jobRearrangerStandardOrder.value.split('\n').map(s => s.trim()).filter(Boolean);
+    saveSetting('jobRearrangerStandardOrder', arr);
+  });
+  elements.jobRearrangerReset?.addEventListener('click', () => {
+    elements.jobRearrangerPriorityKeys.value = DefaultSettings.jobRearrangerPriorityKeys.join('\n');
+    elements.jobRearrangerStandardOrder.value = DefaultSettings.jobRearrangerStandardOrder.join('\n');
+    saveSetting('jobRearrangerPriorityKeys', DefaultSettings.jobRearrangerPriorityKeys);
+    saveSetting('jobRearrangerStandardOrder', DefaultSettings.jobRearrangerStandardOrder);
   });
 
   // Reset
